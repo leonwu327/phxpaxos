@@ -50,7 +50,7 @@ void IOLoop :: run()
         BP->GetIOLoopBP()->OneLoop();
 
         int iNextTimeout = 1000;
-        
+        //这里攒书没有看懂在做什么事情    
         DealwithTimeout(iNextTimeout);
 
         //PLGHead("nexttimeout %d", iNextTimeout);
@@ -194,6 +194,7 @@ void IOLoop :: OneLoop(const int iTimeoutMs)
         if (psMessage != nullptr && psMessage->size() > 0)
         {
             m_iQueueMemSize -= psMessage->size();
+            // paxos 的核心接口，根据不同的消息类型进入不同的处理入口。
             m_poInstance->OnReceive(*psMessage);
         }
 
@@ -202,10 +203,13 @@ void IOLoop :: OneLoop(const int iTimeoutMs)
         BP->GetIOLoopBP()->OutQueueMsg();
     }
 
+    // 这是个特殊的队列，用来处理 paxos 算法过程中产生的 retry 消息，
+    // 这些消息可以重复的去处理，所以才使用这个队列。
     DealWithRetry();
 
     //must put on here
     //because addtimer on this funciton
+    // 这个用来检查是否已经有了新的外界的 propose 值，如果有了就去做处理。
     m_poInstance->CheckNewValue();
 }
 

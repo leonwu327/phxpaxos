@@ -170,6 +170,7 @@ int Proposer :: NewValue(const std::string & sValue)
 {
     BP->GetProposerBP()->NewProposal(sValue);
 
+    //记录这个propose的值
     if (m_oProposerState.GetValue().size() == 0)
     {
         m_oProposerState.SetValue(sValue);
@@ -178,6 +179,7 @@ int Proposer :: NewValue(const std::string & sValue)
     m_iLastPrepareTimeoutMs = START_PREPARE_TIMEOUTMS;
     m_iLastAcceptTimeoutMs = START_ACCEPT_TIMEOUTMS;
 
+    //这里跳过了prepare阶段，对single-paxos做了优化
     if (m_bCanSkipPrepare && !m_bWasRejectBySomeone)
     {
         BP->GetProposerBP()->NewProposalSkipPrepare();
@@ -185,6 +187,7 @@ int Proposer :: NewValue(const std::string & sValue)
         PLGHead("skip prepare, directly start accept");
         Accept();
     }
+    //冲突了 执行prepare 阶段
     else
     {
         //if not reject by someone, no need to increase ballot
@@ -293,6 +296,8 @@ void Proposer :: Prepare(const bool bNeedNewBallot)
     m_bWasRejectBySomeone = false;
 
     m_oProposerState.ResetHighestOtherPreAcceptBallot();
+    
+    //分配一个新的提案编号
     if (bNeedNewBallot)
     {
         m_oProposerState.NewPrepare();
@@ -306,6 +311,7 @@ void Proposer :: Prepare(const bool bNeedNewBallot)
 
     m_oMsgCounter.StartNewRound();
 
+    //添加定时器，当出现超时后，重新触发Prepare
     AddPrepareTimer();
 
     PLGHead("END OK");
@@ -321,24 +327,28 @@ void Proposer :: OnPrepareReply(const PaxosMsg & oPaxosMsg)
 
     BP->GetProposerBP()->OnPrepareReply();
     
+    // 收到消息时发现已经不在 prepare 阶段了，直接忽略这个消息。
     if (!m_bIsPreparing)
     {
         BP->GetProposerBP()->OnPrepareReplyButNotPreparing();
         //PLGErr("Not preparing, skip this msg");
         return;
     }
-
+    
+    // 正在 prepare 阶段，但是 proposeID 不一致，同样忽略。
     if (oPaxosMsg.proposalid() != m_oProposerState.GetProposalID())
     {
         BP->GetProposerBP()->OnPrepareReplyNotSameProposalIDMsg();
         //PLGErr("ProposalID not same, skip this msg");
         return;
     }
-
+    
+    // 统计回复的节点数量。
     m_oMsgCounter.AddReceive(oPaxosMsg.nodeid());
 
     if (oPaxosMsg.rejectbypromiseid() == 0)
     {
+        // 统计赞成的节点数量。
         BallotNumber oBallot(oPaxosMsg.preacceptid(), oPaxosMsg.preacceptnodeid());
         PLGDebug("[Promise] PreAcceptedID %lu PreAcceptedNodeID %lu ValueSize %zu", 
                 oPaxosMsg.preacceptid(), oPaxosMsg.preacceptnodeid(), oPaxosMsg.value().size());
@@ -347,12 +357,14 @@ void Proposer :: OnPrepareReply(const PaxosMsg & oPaxosMsg)
     }
     else
     {
+        // 统计拒绝的节点数量。
         PLGDebug("[Reject] RejectByPromiseID %lu", oPaxosMsg.rejectbypromiseid());
         m_oMsgCounter.AddReject(oPaxosMsg.nodeid());
         m_bWasRejectBySomeone = true;
         m_oProposerState.SetOtherProposalID(oPaxosMsg.rejectbypromiseid());
     }
 
+    // 超过半数赞同意味着本次 prepare 阶段成功。
     if (m_oMsgCounter.IsPassedOnThisRound())
     {
         int iUseTimeMs = m_oTimeStat.Point();
@@ -361,6 +373,9 @@ void Proposer :: OnPrepareReply(const PaxosMsg & oPaxosMsg)
         m_bCanSkipPrepare = true;
         Accept();
     }
+    
+    //收到大多数节点 reject 的消息或者已经收到了收到了所有节点的消息。
+    //设立一个随机的定时器，为的是与别的节点避免冲突。
     else if (m_oMsgCounter.IsRejectedOnThisRound()
             || m_oMsgCounter.IsAllReceiveOnThisRound())
     {
@@ -382,6 +397,7 @@ void Proposer :: OnExpiredPrepareReply(const PaxosMsg & oPaxosMsg)
     }
 }
 
+//Accept阶段
 void Proposer :: Accept()
 {
     PLGHead("START ProposalID %lu ValueSize %zu ValueLen %zu", 
@@ -418,13 +434,15 @@ void Proposer :: OnAcceptReply(const PaxosMsg & oPaxosMsg)
 
     BP->GetProposerBP()->OnAcceptReply();
 
+    // 收到消息时发现已经不在 accept 阶段了，直接忽略这个消息。
     if (!m_bIsAccepting)
     {
         //PLGErr("Not proposing, skip this msg");
         BP->GetProposerBP()->OnAcceptReplyButNotAccepting();
         return;
     }
-
+    
+    // 正在 accept 阶段，但是 proposeID 不一致，同样忽略。
     if (oPaxosMsg.proposalid() != m_oProposerState.GetProposalID())
     {
         //PLGErr("ProposalID not same, skip this msg");
@@ -432,6 +450,7 @@ void Proposer :: OnAcceptReply(const PaxosMsg & oPaxosMsg)
         return;
     }
 
+    //投票统计， 和OnPrepareReply类似
     m_oMsgCounter.AddReceive(oPaxosMsg.nodeid());
 
     if (oPaxosMsg.rejectbypromiseid() == 0)

@@ -26,9 +26,16 @@ See the AUTHORS file for names of contributors.
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <iostream>
 
 using namespace phxpaxos;
 using namespace std;
+
+void custLog(const int iLogLevel, const char * pcFormat, va_list args) {
+    char sBuf[1024] = {0};
+    vsnprintf(sBuf, sizeof(sBuf), pcFormat, args);
+    std::cout << sBuf << std::endl;
+}
 
 namespace phxelection
 {
@@ -70,26 +77,44 @@ void PhxElection :: OnMasterChange(const int iGroupIdx, const NodeInfo & oNewMas
 
 int PhxElection :: RunPaxos()
 {
+    //选项类，设置所有用户可见的可变参数
     Options oOptions;
 
+    //创建日志路径, 至于是什么日志，先不关心
     int ret = MakeLogStoragePath(oOptions.sLogStoragePath);
     if (ret != 0)
     {
         return ret;
     }
+    //add by leonwu 调试日志
+    oOptions.pLogFunc = custLog;
 
+    //group的数量，group只是为了并发，每个group之间并没有交集
     oOptions.iGroupCount = 1;
 
+    //设置本机节点
     oOptions.oMyNode = m_oMyNode;
+
+    //设置集群的节点列表
     oOptions.vecNodeInfoList = m_vecNodeList;
 
+    //创建状态机
     //open inside master state machine
     GroupSMInfo oSMInfo;
+
+    //状态机的组id
     oSMInfo.iGroupIdx = 0;
+
+    //是否支持选主的操作
     oSMInfo.bIsUseMaster = true;
 
+    //将状态机放到状态机列表中
     oOptions.vecGroupSMInfoList.push_back(oSMInfo);
+
+    //设置状态机改变之后支持回调
     oOptions.bOpenChangeValueBeforePropose = true;
+
+    //主机改变之后的回调函数
     oOptions.pMasterChangeCallback = PhxElection::OnMasterChange;
 
     ret = Node::RunNode(oOptions, m_poPaxosNode);
@@ -99,6 +124,7 @@ int PhxElection :: RunPaxos()
         return ret;
     }
 
+    //设置租约时长
     //you can change master lease in real-time.
     m_poPaxosNode->SetMasterLease(0, 3000);
 
@@ -108,6 +134,7 @@ int PhxElection :: RunPaxos()
 
 const phxpaxos::NodeInfo PhxElection :: GetMaster()
 {
+    //获取组的master
     //only one group, so groupidx is 0.
     return m_poPaxosNode->GetMaster(0);
 }

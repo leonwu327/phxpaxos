@@ -38,6 +38,7 @@ WaitLock :: ~WaitLock()
 {
 }
 
+//判断是否可以获取锁 private
 bool WaitLock :: CanLock()
 {
     if (m_iMaxWaitLockCount != -1
@@ -46,23 +47,31 @@ bool WaitLock :: CanLock()
         //to much lock waiting
         return false;
     }
-
+    
     if (m_iLockWaitTimeThresholdMS == -1)
     {
+        //没有设置lock等待时间阈值，直接返回成功
         return true;
     }
 
+    //设置了m_iLockWaitTimeThresholdMS， 根据拒绝率来随机拒绝掉某些请求，达到过载保护的作用
     static std::default_random_engine e_rand;
     return ((int)(e_rand() % 100)) >= m_iRejectRate;
 }
 
+//刷新锁的拒绝率
 void WaitLock :: RefleshRejectRate(const int iUseTimeMs)
 {
     if (m_iLockWaitTimeThresholdMS == -1)
     {
         return;
     }
-
+    
+    //这个其实需要刷新拒绝率，这里设置了一个m_iLockWaitTimeThresholdMS
+    //平均每次锁的时间，当然了，没有设置的话就直接跳过 ，拒绝率永远为0
+    //在锁执行了250次之后进行统计，每次平均获取锁用时超过了m_iLockWaitTimeThresholdMS， 将拒绝率增加3%，并且重置重新统计。
+    //每次平均获取锁用时低于m_iLockWaitTimeThresholdMS， 将拒绝率减少3%
+    //拒绝率在CanLock函数中使用随机数的方式表示是否拒绝
     m_iLockUseTimeSum += iUseTimeMs;
     m_iLockUseTimeCount++;
     if (m_iLockUseTimeCount >= WAIT_LOCK_USERTIME_AVG_INTERVAL)
@@ -88,16 +97,19 @@ void WaitLock :: RefleshRejectRate(const int iUseTimeMs)
     }
 }
 
+//设置最大等待锁的个数
 void WaitLock :: SetMaxWaitLogCount(const int iMaxWaitLockCount)
 {
     m_iMaxWaitLockCount = iMaxWaitLockCount;
 }
 
+//设置平均锁等待时间的阈值，超过这个阈值，有几率失败
 void WaitLock :: SetLockWaitTimeThreshold(const int iLockWaitTimeThresholdMS)
 {
     m_iLockWaitTimeThresholdMS = iLockWaitTimeThresholdMS;
 }
 
+//加锁
 bool WaitLock :: Lock(const int iTimeoutMs, int & iUseTimeMs)
 {
     uint64_t llBeginTime = Time::GetSteadyClockMS();
@@ -105,6 +117,7 @@ bool WaitLock :: Lock(const int iTimeoutMs, int & iUseTimeMs)
     m_oSerialLock.Lock();
     if (!CanLock())
     {
+        //太多人在等待了，返回错误出去
         //printf("reject, now rate %d\n", m_iRejectRate);
         iUseTimeMs = 0;
         m_oSerialLock.UnLock();
@@ -148,6 +161,7 @@ bool WaitLock :: Lock(const int iTimeoutMs, int & iUseTimeMs)
     return bGetLock;
 }
 
+//解锁
 void WaitLock :: UnLock()
 {
     m_oSerialLock.Lock();
@@ -159,7 +173,7 @@ void WaitLock :: UnLock()
 }
 
 ////////////////////////////////////////////
-
+//获取部分值的参数
 int WaitLock :: GetNowHoldThreadCount()
 {
     return m_iWaitLockCount;

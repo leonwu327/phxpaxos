@@ -28,6 +28,7 @@ namespace phxpaxos
 
 #define WAIT_LOCK_USERTIME_AVG_INTERVAL 250
 
+//only used by committed
 class WaitLock
 {
 public:

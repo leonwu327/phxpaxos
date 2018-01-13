@@ -235,6 +235,7 @@ int PNode :: Init(const Options & oOptions, NetWork *& poNetWork)
     m_iMyNodeID = oOptions.oMyNode.GetNodeID();
 
     //step1 init logstorage
+    //基于leveldb的一个什么初始化 先不管他
     LogStorage * poLogStorage = nullptr;
     ret = InitLogStorage(oOptions, poLogStorage);
     if (ret != 0)
@@ -243,6 +244,7 @@ int PNode :: Init(const Options & oOptions, NetWork *& poNetWork)
     }
 
     //step2 init network
+    //初始化网络
     ret = InitNetWork(oOptions, poNetWork);
     if (ret != 0)
     {
@@ -250,6 +252,7 @@ int PNode :: Init(const Options & oOptions, NetWork *& poNetWork)
     }
 
     //step3 build masterlist
+    //根据组的个数构建masterlist
     for (int iGroupIdx = 0; iGroupIdx < oOptions.iGroupCount; iGroupIdx++)
     {
         MasterMgr * poMaster = new MasterMgr(this, iGroupIdx, poLogStorage, oOptions.pMasterChangeCallback);
@@ -348,6 +351,7 @@ int PNode :: Propose(const int iGroupIdx, const std::string & sValue, uint64_t &
         return Paxos_GroupIdxWrong;
     }
 
+    //消息通过committer进行propose
     return m_vecGroupList[iGroupIdx]->GetCommitter()->NewValueGetID(sValue, llInstanceID, poSMCtx);
 }
 

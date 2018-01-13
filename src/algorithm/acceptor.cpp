@@ -188,6 +188,8 @@ Acceptor :: ~Acceptor()
 int Acceptor :: Init()
 {
     uint64_t llInstanceID = 0;
+
+    //初始化工作就是从当前group中，m_oAcceptorState中加载instanceid
     int ret = m_oAcceptorState.Load(llInstanceID);
     if (ret != 0)
     {
@@ -217,6 +219,7 @@ AcceptorState * Acceptor :: GetAcceptorState()
     return &m_oAcceptorState;
 }
 
+//整个就是Acceptor 算法中的 prepare 实现，没有添加任何添加剂
 int Acceptor :: OnPrepare(const PaxosMsg & oPaxosMsg)
 {
     PLGHead("START Msg.InstanceID %lu Msg.from_nodeid %lu Msg.ProposalID %lu",
@@ -232,6 +235,7 @@ int Acceptor :: OnPrepare(const PaxosMsg & oPaxosMsg)
 
     BallotNumber oBallot(oPaxosMsg.proposalid(), oPaxosMsg.nodeid());
     
+    //消息的ballotId 大于等于 Promise ballotId， 可以进行准备
     if (oBallot >= m_oAcceptorState.GetPromiseBallot())
     {
         PLGDebug("[Promise] State.PromiseID %lu State.PromiseNodeID %lu "
@@ -248,9 +252,9 @@ int Acceptor :: OnPrepare(const PaxosMsg & oPaxosMsg)
         {
             oReplyPaxosMsg.set_value(m_oAcceptorState.GetAcceptedValue());
         }
-
+        
+        
         m_oAcceptorState.SetPromiseBallot(oBallot);
-
         int ret = m_oAcceptorState.Persist(GetInstanceID(), GetLastChecksum());
         if (ret != 0)
         {
@@ -263,6 +267,7 @@ int Acceptor :: OnPrepare(const PaxosMsg & oPaxosMsg)
 
         BP->GetAcceptorBP()->OnPreparePass();
     }
+    //消息的ballotId 小于 Promise ballotId， 拒绝这条消息
     else
     {
         BP->GetAcceptorBP()->OnPrepareReject();
@@ -299,6 +304,7 @@ void Acceptor :: OnAccept(const PaxosMsg & oPaxosMsg)
 
     BallotNumber oBallot(oPaxosMsg.proposalid(), oPaxosMsg.nodeid());
 
+    //消息的ballotId 大于等于 Promise ballotId， 可接受
     if (oBallot >= m_oAcceptorState.GetPromiseBallot())
     {
         PLGDebug("[Promise] State.PromiseID %lu State.PromiseNodeID %lu "
@@ -308,10 +314,12 @@ void Acceptor :: OnAccept(const PaxosMsg & oPaxosMsg)
                 m_oAcceptorState.GetAcceptedBallot().m_llProposalID,
                 m_oAcceptorState.GetAcceptedBallot().m_llNodeID);
 
+        //设置接受的ballotId 和 接受的 value
         m_oAcceptorState.SetPromiseBallot(oBallot);
         m_oAcceptorState.SetAcceptedBallot(oBallot);
         m_oAcceptorState.SetAcceptedValue(oPaxosMsg.value());
         
+        // 更新 promise proposeid 的值。并记住已经 promise 的最大值。
         int ret = m_oAcceptorState.Persist(GetInstanceID(), GetLastChecksum());
         if (ret != 0)
         {
@@ -325,6 +333,7 @@ void Acceptor :: OnAccept(const PaxosMsg & oPaxosMsg)
 
         BP->GetAcceptorBP()->OnAcceptPass();
     }
+    //消息的ballotId 小于 Promise ballotId， 拒绝这条消息
     else
     {
         BP->GetAcceptorBP()->OnAcceptReject();

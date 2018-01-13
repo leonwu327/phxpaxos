@@ -116,6 +116,7 @@ void MasterMgr :: run()
 
         PLG1Imp("TryBeMaster, sleep time %dms", iNeedSleepTime);
         Time::MsSleep(iNeedSleepTime);
+        //每隔一段时间去续租
     }
 }
 
@@ -127,6 +128,7 @@ void MasterMgr :: TryBeMaster(const int iLeaseTime)
     //step 1 check exist master and get version
     m_oDefaultMasterSM.SafeGetMaster(iMasterNodeID, llMasterVersion);
 
+    //发现其他节点是master，不能抢占master
     if (iMasterNodeID != nullnode && (iMasterNodeID != m_poPaxosNode->GetMyNodeID()))
     {
         PLG1Imp("Ohter as master, can't try be master, masterid %lu myid %lu", 
@@ -149,8 +151,10 @@ void MasterMgr :: TryBeMaster(const int iLeaseTime)
         return;
     }
 
+    //master租约过期时间(这里会比非master节点认为的master租约长100)
     const int iMasterLeaseTimeout = iLeaseTime - 100;
-    
+
+    //master租约过期的绝对时间
     uint64_t llAbsMasterTimeout = Time::GetSteadyClockMS() + iMasterLeaseTimeout; 
     uint64_t llCommitInstanceID = 0;
 

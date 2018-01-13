@@ -43,6 +43,7 @@ void DFNetWork :: StopNetWork()
 
 int DFNetWork :: Init(const std::string & sListenIp, const int iListenPort, const int iIOThreadCount) 
 {
+    //对于udp 创建一个发送套接字，一个接受套接字
     int ret = m_oUDPSend.Init();
     if (ret != 0)
     {
@@ -55,6 +56,10 @@ int DFNetWork :: Init(const std::string & sListenIp, const int iListenPort, cons
         return ret;
     }
 
+    //对于TCP则是通常的bind-listen服务端初始化。
+    //TCP类型的初始化工作，还包括使用epoll_create创建异步事件侦听，
+    //同时创建封装了pipe匿名管道的Notify对象用于对接收到的消息进行传递，
+    //并设置管道NONBLOCK且将管道的读端添加EPOLLIN事件侦听
     ret = m_oTcpIOThread.Init(sListenIp, iListenPort, iIOThreadCount);
     if (ret != 0)
     {

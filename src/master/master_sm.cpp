@@ -107,6 +107,7 @@ int MasterStateMachine :: LearnMaster(
 {
     std::lock_guard<std::mutex> oLockGuard(m_oMutex);
 
+    //版本
     PLG1Debug("my last version %lu other last version %lu this version %lu instanceid %lu",
             m_llMasterVersion, oMasterOper.lastversion(), oMasterOper.version(), llInstanceID);
 
@@ -144,6 +145,8 @@ int MasterStateMachine :: LearnMaster(
     }
 
     m_iMasterNodeID = oMasterOper.nodeid();
+
+    //如果自己是master
     if (m_iMasterNodeID == m_iMyNodeID)
     {
         //self be master
@@ -155,6 +158,7 @@ int MasterStateMachine :: LearnMaster(
     }
     else
     {
+        //如果其他节点变成master， 设置oMasterOper.timeout()认为master过期的时间
         //other be master
         //use new start timeout
         m_llAbsExpireTime = Time::GetSteadyClockMS() + oMasterOper.timeout();
@@ -166,6 +170,7 @@ int MasterStateMachine :: LearnMaster(
     m_iLeaseTime = oMasterOper.timeout();
     m_llMasterVersion = llInstanceID;
 
+    //如果master改变了 调用用户定义的master改变的函数
     if (bMasterChange)
     {
         if (m_pMasterChangeCallback != nullptr)
@@ -184,6 +189,7 @@ void MasterStateMachine :: SafeGetMaster(nodeid_t & iMasterNodeID, uint64_t & ll
 {
     std::lock_guard<std::mutex> oLockGuard(m_oMutex);
 
+    //master过期了，需要去抢占master
     if (Time::GetSteadyClockMS() >= m_llAbsExpireTime)
     {
         iMasterNodeID = nullnode;

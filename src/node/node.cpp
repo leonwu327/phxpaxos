@@ -27,19 +27,23 @@ namespace phxpaxos
 
 int Node :: RunNode(const Options & oOptions, Node *& poNode)
 {
+    //对大数据做了优化，不再主线流程中，暂时不关注
     if (oOptions.bIsLargeValueMode)
     {
         InsideOptions::Instance()->SetAsLargeBufferMode();
     }
-    
+
+    //设置组的个数
     InsideOptions::Instance()->SetGroupCount(oOptions.iGroupCount);
         
     poNode = nullptr;
     NetWork * poNetWork = nullptr;
 
+    //这个应该是调试用的，暂时不关注
     Breakpoint::m_poBreakpoint = nullptr;
     BP->SetInstance(oOptions.poBreakpoint);
 
+    //初始化pnode节点类，统领整个节点的信息
     PNode * poRealNode = new PNode();
     int ret = poRealNode->Init(oOptions, poNetWork);
     if (ret != 0)

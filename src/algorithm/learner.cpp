@@ -84,6 +84,7 @@ int LearnerState :: LearnValue(const uint64_t llInstanceID, const BallotNumber &
     WriteOptions oWriteOptions;
     oWriteOptions.bSync = false;
 
+    //将learn到的值写入paxos日志中
     int ret = m_oPaxosLog.WriteState(oWriteOptions, m_poConfig->GetMyGroupIdx(), llInstanceID, oState);
     if (ret != 0)
     {
@@ -196,6 +197,7 @@ const uint64_t Learner :: GetSeenLatestInstanceID()
     return m_llHighestSeenInstanceID;
 }
 
+// 这个函数设置本节点的 instance 看到其余节点请求 learn 的 instance 的最大值。
 void Learner :: SetSeenInstanceID(const uint64_t llInstanceID, const nodeid_t llFromNodeID)
 {
     if (llInstanceID > m_llHighestSeenInstanceID)
@@ -234,7 +236,7 @@ void Learner :: AskforLearn_Noop(const bool bIsStart)
 }
 
 ///////////////////////////////////////////////////////////////
-
+//Learner定时发送当前的intanceid，尝试获得当前intanceid之后的值
 void Learner :: AskforLearn()
 {
     BP->GetLearnerBP()->AskforLearn();
@@ -269,6 +271,7 @@ void Learner :: OnAskforLearn(const PaxosMsg & oPaxosMsg)
     
     SetSeenInstanceID(oPaxosMsg.instanceid(), oPaxosMsg.nodeid());
 
+    //发现一个新的Follower 
     if (oPaxosMsg.proposalnodeid() == m_poConfig->GetMyNodeID())
     {
         //Found a node follow me.
@@ -276,19 +279,26 @@ void Learner :: OnAskforLearn(const PaxosMsg & oPaxosMsg)
         m_poConfig->AddFollowerNode(oPaxosMsg.nodeid());
     }
     
+    //需要习得的Instance Id比本节点的更新，无法从本节点习得，直接返回
     if (oPaxosMsg.instanceid() >= GetInstanceID())
     {
+        //我已经out了，不要向我学习
         return;
     }
-
+    
+    //需要习得的Instance Id尚未被归档(Checkpoint)，可以从本节点习得
     if (oPaxosMsg.instanceid() >= m_poCheckpointMgr->GetMinChosenInstanceID())
     {
+        //向Learner Sender发送Prepare请求，交由Learner Sender向发起者发送习得值
         if (!m_oLearnerSender.Prepare(oPaxosMsg.instanceid(), oPaxosMsg.nodeid()))
         {
             BP->GetLearnerBP()->OnAskforLearnGetLockFail();
 
             PLGErr("LearnerSender working for others.");
-
+            
+            // 这是一个优化，当只差一个 instance 时，可以直接 learn ，
+            // 即使没有通过 prepare 也可以这么做。
+            // 后续再研究这个的原因。。。
             if (oPaxosMsg.instanceid() == (GetInstanceID() - 1))
             {
                 PLGImp("InstanceID only difference one, just send this value to other.");
@@ -306,6 +316,7 @@ void Learner :: OnAskforLearn(const PaxosMsg & oPaxosMsg)
         }
     }
     
+    //已经归档，发送本节点当前的Instance Id信息，交由Learner的发起者决定是否决定是否做做归档数据对齐
     SendNowInstanceID(oPaxosMsg.instanceid(), oPaxosMsg.nodeid());
 }
 

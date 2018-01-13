@@ -48,6 +48,7 @@ int Committer :: NewValueGetID(const std::string & sValue, uint64_t & llInstance
     return NewValueGetID(sValue, llInstanceID, nullptr);
 }
 
+//只是针对NewValueGetIDNoRetry重试了3此而已
 int Committer :: NewValueGetID(const std::string & sValue, uint64_t & llInstanceID, SMCtx * poSMCtx)
 {
     BP->GetCommiterBP()->NewValue();
@@ -93,6 +94,8 @@ int Committer :: NewValueGetIDNoRetry(const std::string & sValue, uint64_t & llI
     bool bHasLock = m_oWaitLock.Lock(m_iTimeoutMs, iLockUseTimeMs);
     if (!bHasLock)
     {
+        // 两种情况会拿不到锁，一种是拿锁的过程超时了，
+        // 还有一种是有太多的线程在等待锁。
         if (iLockUseTimeMs > 0)
         {
             BP->GetCommiterBP()->NewValueGetLockTimeout();
@@ -110,6 +113,7 @@ int Committer :: NewValueGetIDNoRetry(const std::string & sValue, uint64_t & llI
     int iLeftTimeoutMs = -1;
     if (m_iTimeoutMs > 0)
     {
+        // 计算剩下还有多少时间可以运行本次 commit 。 不到200ms也不要来运行我了，没时间了。，。。。
         iLeftTimeoutMs = m_iTimeoutMs > iLockUseTimeMs ? m_iTimeoutMs - iLockUseTimeMs : 0;
         if (iLeftTimeoutMs < 200)
         {
@@ -128,13 +132,17 @@ int Committer :: NewValueGetIDNoRetry(const std::string & sValue, uint64_t & llI
 
     //pack smid to value
     int iSMID = poSMCtx != nullptr ? poSMCtx->m_iSMID : 0;
-    
+
+    // 消息需要合并一个 iSMID 作为状态机的辨识，方便以后状态机的执行。
     string sPackSMIDValue = sValue;
     m_poSMFac->PackPaxosValue(sPackSMIDValue, iSMID);
 
     m_poCommitCtx->NewCommit(&sPackSMIDValue, poSMCtx, iLeftTimeoutMs);
+
+    //通知消费者
     m_poIOLoop->AddNotify();
 
+    // 等待最后的结果，等待过程中会休眠。
     int ret = m_poCommitCtx->GetResult(llInstanceID);
 
     m_oWaitLock.UnLock();
@@ -142,17 +150,19 @@ int Committer :: NewValueGetIDNoRetry(const std::string & sValue, uint64_t & llI
 }
 
 ////////////////////////////////////////////////////
-
+//设置committer的超时时间
 void Committer :: SetTimeoutMs(const int iTimeoutMs)
 {
     m_iTimeoutMs = iTimeoutMs;
 }
 
+//设置committer的最大等待线程
 void Committer :: SetMaxHoldThreads(const int iMaxHoldThreads)
 {
     m_oWaitLock.SetMaxWaitLogCount(iMaxHoldThreads);
 }
 
+//设置proposer 等待时间
 void Committer :: SetProposeWaitTimeThresholdMS(const int iWaitTimeThresholdMS)
 {
     m_oWaitLock.SetLockWaitTimeThreshold(iWaitTimeThresholdMS);

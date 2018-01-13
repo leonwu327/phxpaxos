@@ -57,6 +57,7 @@ Instance :: ~Instance()
 int Instance :: Init()
 {
     //Must init acceptor first, because the max instanceid is record in acceptor state.
+    //首先初始化acceptor
     int ret = m_oAcceptor.Init();
     if (ret != 0)
     {
@@ -64,6 +65,7 @@ int Instance :: Init()
         return ret;
     }
 
+	//初始化checkpointMgr，这个过一段时间再研究
     ret = m_oCheckpointMgr.Init();
     if (ret != 0)
     {
@@ -71,6 +73,7 @@ int Instance :: Init()
         return ret;
     }
 
+	//获取checkpoint的实例id
     uint64_t llCPInstanceID = m_oCheckpointMgr.GetCheckpointInstanceID() + 1;
 
     PLGImp("Acceptor.OK, Log.InstanceID %lu Checkpoint.InstanceID %lu", 
@@ -79,6 +82,7 @@ int Instance :: Init()
     uint64_t llNowInstanceID = llCPInstanceID;
     if (llNowInstanceID < m_oAcceptor.GetInstanceID())
     {
+        //checkpoint的实例id 小于 acceptor的示例id 回放操作
         ret = PlayLog(llNowInstanceID, m_oAcceptor.GetInstanceID());
         if (ret != 0)
         {
@@ -93,6 +97,7 @@ int Instance :: Init()
     {
         if (llNowInstanceID > m_oAcceptor.GetInstanceID())
         {
+            //这里引入了一种保护机制。。。。其实我之后按名字来翻译的，anyway 之后再研究 先关注主线
             ret = ProtectionLogic_IsCheckpointInstanceIDCorrect(llNowInstanceID, m_oAcceptor.GetInstanceID());
             if (ret != 0)
             {
@@ -106,18 +111,22 @@ int Instance :: Init()
 
     PLGImp("NowInstanceID %lu", llNowInstanceID);
 
+    //给proposer\learner设置instanceid
     m_oLearner.SetInstanceID(llNowInstanceID);
     m_oProposer.SetInstanceID(llNowInstanceID);
     m_oProposer.SetStartProposalID(m_oAcceptor.GetAcceptorState()->GetPromiseBallot().m_llProposalID + 1);
 
+    //checkpoint 之后再看
     m_oCheckpointMgr.SetMaxChosenInstanceID(llNowInstanceID);
 
+    //也是个未知的东东，之后再看
     ret = InitLastCheckSum();
     if (ret != 0)
     {
         return ret;
     }
 
+    //设置 learn 在IOloop的定时循环
     m_oLearner.Reset_AskforLearn_Noop();
 
     PLGImp("OK");
@@ -391,6 +400,7 @@ bool Instance :: ReceiveMsgHeaderCheck(const Header & oHeader, const nodeid_t iF
     return true;
 }
 
+//paxos 消息处理的总入口OnReceive
 void Instance :: OnReceive(const std::string & sBuffer)
 {
     BP->GetInstanceBP()->OnReceive();
@@ -414,6 +424,7 @@ void Instance :: OnReceive(const std::string & sBuffer)
 
     if (iCmd == MsgCmd_PaxosMsg)
     {
+        //paxos消息的处理
         if (m_oCheckpointMgr.InAskforcheckpointMode())
         {
             PLGImp("in ask for checkpoint mode, ignord paxosmsg");
@@ -438,6 +449,7 @@ void Instance :: OnReceive(const std::string & sBuffer)
     }
     else if (iCmd == MsgCmd_CheckpointMsg)
     {
+        //checkpoint消息的处理
         CheckpointMsg oCheckpointMsg;
         bool bSucc = oCheckpointMsg.ParseFromArray(sBuffer.data() + iBodyStartPos, iBodyLen);
         if (!bSucc)
@@ -456,6 +468,7 @@ void Instance :: OnReceive(const std::string & sBuffer)
     }
 }
 
+//处理checkpoint的msg， 包括sendfile和sendfile_ack的处理
 void Instance :: OnReceiveCheckpointMsg(const CheckpointMsg & oCheckpointMsg)
 {
     PLGImp("Now.InstanceID %lu MsgType %d Msg.from_nodeid %lu My.nodeid %lu flag %d"
@@ -480,6 +493,7 @@ void Instance :: OnReceiveCheckpointMsg(const CheckpointMsg & oCheckpointMsg)
     }
 }
 
+//处理paxos的msg， 包括proposer、accepter、learner的处理
 int Instance :: OnReceivePaxosMsg(const PaxosMsg & oPaxosMsg, const bool bIsRetry)
 {
     BP->GetInstanceBP()->OnReceivePaxosMsg();
@@ -492,6 +506,7 @@ int Instance :: OnReceivePaxosMsg(const PaxosMsg & oPaxosMsg, const bool bIsRetr
             || oPaxosMsg.msgtype() == MsgType_PaxosAcceptReply
             || oPaxosMsg.msgtype() == MsgType_PaxosProposal_SendNewValue)
     {
+     //这里消息都是proposer处理
         if (!m_poConfig->IsValidNodeID(oPaxosMsg.nodeid()))
         {
             BP->GetInstanceBP()->OnReceivePaxosMsgNodeIDNotValid();
@@ -504,6 +519,7 @@ int Instance :: OnReceivePaxosMsg(const PaxosMsg & oPaxosMsg, const bool bIsRetr
     else if (oPaxosMsg.msgtype() == MsgType_PaxosPrepare
             || oPaxosMsg.msgtype() == MsgType_PaxosAccept)
     {
+        //这里消息都是accepter处理
         //if my gid is zero, then this is a unknown node.
         if (m_poConfig->GetGid() == 0)
         {
@@ -532,6 +548,7 @@ int Instance :: OnReceivePaxosMsg(const PaxosMsg & oPaxosMsg, const bool bIsRetr
             || oPaxosMsg.msgtype() == MsgType_PaxosLearner_SendLearnValue_Ack
             || oPaxosMsg.msgtype() == MsgType_PaxosLearner_AskforCheckpoint)
     {
+        //这里的消息都是learner处理
         ChecksumLogic(oPaxosMsg);
         return ReceiveMsgForLearner(oPaxosMsg);
     }
@@ -710,6 +727,7 @@ int Instance :: ReceiveMsgForLearner(const PaxosMsg & oPaxosMsg)
             PLGHead("My commit ok, usetime %dms", iUseTimeMs);
         }
 
+        //执行状态机，同步了之后执行状态机需要的操作
         if (!SMExecute(m_oLearner.GetInstanceID(), m_oLearner.GetLearnValue(), bIsMyCommit, poSMCtx))
         {
             BP->GetInstanceBP()->OnInstanceLearnedSMExecuteFail();
@@ -724,6 +742,7 @@ int Instance :: ReceiveMsgForLearner(const PaxosMsg & oPaxosMsg)
         }
         
         {
+            //执行完成了，propose返回，一个propose执行成功
             //this paxos instance end, tell proposal done
             m_oCommitCtx.SetResult(PaxosTryCommitRet_OK
                     , m_oLearner.GetInstanceID(), m_oLearner.GetLearnValue());
@@ -757,6 +776,7 @@ int Instance :: ReceiveMsgForLearner(const PaxosMsg & oPaxosMsg)
     return 0;
 }
 
+//新实例
 void Instance :: NewInstance()
 {
     m_oAcceptor.NewInstance();
@@ -764,11 +784,13 @@ void Instance :: NewInstance()
     m_oProposer.NewInstance();
 }
 
+//获取现在的实例
 const uint64_t Instance :: GetNowInstanceID()
 {
     return m_oAcceptor.GetInstanceID();
 }
 
+//获取最小选择的示例
 const uint64_t Instance :: GetMinChosenInstanceID()
 {
     return m_oCheckpointMgr.GetMinChosenInstanceID();
